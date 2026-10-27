@@ -1,0 +1,10 @@
+import {validateDoc,canonical} from './sync-model.js';
+const enc=new TextEncoder(),dec=new TextDecoder();
+export function base64(bytes){let s='';for(let i=0;i<bytes.length;i+=8192)s+=String.fromCharCode(...bytes.subarray(i,i+8192));return btoa(s);}
+export function unbase64(s){return Uint8Array.from(atob(s),v=>v.charCodeAt(0));}
+export async function hash(v){const bytes=typeof v==='string'?enc.encode(v):v;return [...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(x=>x.toString(16).padStart(2,'0')).join('');}
+async function key(raw){return crypto.subtle.importKey('raw',unbase64(raw),{name:'AES-GCM'},false,['encrypt','decrypt']);}
+export async function sealDoc(doc,link){validateDoc(doc);const k=await key(link.key),iv=crypto.getRandomValues(new Uint8Array(12)),aad=enc.encode('family-hub-sync-v1:'+link.vault);const data=await crypto.subtle.encrypt({name:'AES-GCM',iv,additionalData:aad},k,enc.encode(canonical(doc)));return {format:'family-hub-sync-v1',iv:base64(iv),data:base64(new Uint8Array(data))};}
+export async function openDoc(envelope,link){try{if(envelope.format!=='family-hub-sync-v1')throw Error();const k=await key(link.key),raw=await crypto.subtle.decrypt({name:'AES-GCM',iv:unbase64(envelope.iv),additionalData:enc.encode('family-hub-sync-v1:'+link.vault)},k,unbase64(envelope.data));return validateDoc(JSON.parse(dec.decode(raw)));}catch{throw Error('云端版本无法通过解密校验，请检查配对码。未改动本机记录。');}}
+export function pairCode(link){const data={v:1,vault:link.vault,token:link.token,key:link.key};return 'FH1.'+base64(enc.encode(JSON.stringify(data))).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,'');}
+export function parsePairCode(code,endpoint){try{const raw=code.trim();if(!raw.startsWith('FH1.'))throw Error();const p=JSON.parse(dec.decode(unbase64(raw.slice(4).replaceAll('-','+').replaceAll('_','/'))));if(p.v!==1||!/^[-a-zA-Z0-9_]{16,80}$/.test(p.vault)||unbase64(p.token).length!==32||unbase64(p.key).length!==32||!endpoint.startsWith('https://'))throw Error();return {endpoint,vault:p.vault,token:p.token,key:p.key};}catch{throw Error('配对码格式不正确。请从已连接的家庭设备或私密配对文件中复制完整内容。');}}

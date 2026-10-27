@@ -1,3 +1,4 @@
+import {stripSyncSecrets} from './sync-model.js';
 import {CATEGORIES,TRANSFERS,DEFAULT_BUDGET,BUDGET_FIELDS,monthInfo,monthEnd,initialState,validateState} from './core.js';
 const rowMap={salary:11,bonus:12,equity:13,income:14,mortgage:17,living:18,travel:19,car:20,other:21,interest:22};
 const budgetMap={salary:8,mortgage:9,fund:10,living:12,travel:13,car:14,other:15,fixed:16,stretch:17,combined:19,reserve:20};
@@ -25,6 +26,7 @@ export function applyLegacy(s,p){
  candidate.budgets[p.year]=structuredClone(p.budget);for(const [m,v] of Object.entries(p.months))if(!candidate.months[m])candidate.months[m]=structuredClone(v);candidate.snapshots.push(...structuredClone(p.snapshots.filter(v=>!candidate.snapshots.some(x=>x.date===v.date))));validateState(candidate);return candidate;
 }
 export function exportWorkbook(s,year){
+ s=stripSyncSecrets(s);
  const X=lib(),wb=X.utils.book_new(),b=s.budgets[year]||DEFAULT_BUDGET;
  const rows=[['Family Hub · 月度收支',year],['金额：人民币元；空白为未知，0 为已确认无发生'],['月份','模式','复盘确认',...CATEGORIES.map(c=>c.label),'新增现金结余','工资结余','本月事项','下月行动','转储蓄','融资还本','新增投资','额外房贷还本']];
  for(let i=1;i<=12;i++){const month=`${year}-${String(i).padStart(2,'0')}`,m=monthInfo(s,month);rows.push([month,m.mode==='detail'?'逐笔':'汇总',m.reviewed?'已核对':'待核对',...CATEGORIES.map(c=>m.amounts[c.id]),m.saving,m.salarySaving,m.note||'',m.action||'',m.allocations?.savings??null,m.allocations?.repay??null,m.allocations?.invest??null,m.allocations?.mortgage??null]);}
