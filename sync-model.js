@@ -11,7 +11,7 @@ export function emptyShared(){return {budgets:{},months:{},transactions:[],snaps
 export function initialShared(s){const out=sharedData(s);for(const [y,b] of Object.entries(out.budgets))if(Object.values(b).every(v=>v===0))delete out.budgets[y];return out;}
 export const emptyDoc=()=>({format:'family-hub-crdt-v1',clock:{},registers:{}});
 const path=(group,key)=>group+'/'+encodeURIComponent(key);
-export function flatten(s){const out={};for(const g of MAPS)for(const [k,v]of Object.entries(s[g]||{}))out[path(g,k)]=v;for(const g of LISTS)for(const v of s[g]||[])out[path(g,v.id)]=v;if(s.references!==undefined)out.references=s.references;return out;}
+export function flatten(s){const out={};for(const g of MAPS)for(const [k,v]of Object.entries(s[g]||{}))out[path(g,k)]=v;for(const g of LISTS)for(const v of s[g]||[])out[path(g,g==='snapshots'?v.date:v.id)]=v;if(s.references!==undefined)out.references=s.references;return out;}
 export function covers(a,b){return Object.keys(b).every(k=>(a[k]||0)>=b[k]);}
 export function dominates(a,b){return covers(a,b)&&Object.keys(a).some(k=>a[k]>(b[k]||0));}
 function mergeClock(a,b){const out={...a};for(const [k,v]of Object.entries(b))out[k]=Math.max(out[k]||0,v);return out;}
@@ -21,7 +21,7 @@ export function validateDoc(d){
  const clock=c=>{for(const [k,v]of Object.entries(c))if(['__proto__','constructor','prototype'].includes(k)||!/^[a-zA-Z0-9_-]{8,80}$/.test(k)||!Number.isSafeInteger(v)||v<0)throw Error('云端版本时钟不合法。');};clock(d.clock);
  for(const [p,versions]of Object.entries(d.registers)){
   if(p!=='references'&&!/^(budgets|months|transactions|snapshots|trips|todos)\/[^/]{1,500}$/.test(p))throw Error('云端记录类型不合法。');
-  const [group,encoded]=p.split('/');const mapKey=encoded?decodeURIComponent(encoded):'';if(group==='budgets'&&!/^\d{4}$/.test(mapKey)||group==='months'&&!/^\d{4}-(0[1-9]|1[0-2])$/.test(mapKey))throw Error('云端年月标识不合法。');
+  const [group,encoded]=p.split('/');const mapKey=encoded?decodeURIComponent(encoded):'';if(group==='snapshots'&&!/^\d{4}-\d{2}-\d{2}$/.test(mapKey))throw Error('快照日期标识不合法。');if(group==='budgets'&&!/^\d{4}$/.test(mapKey)||group==='months'&&!/^\d{4}-(0[1-9]|1[0-2])$/.test(mapKey))throw Error('云端年月标识不合法。');
   if(!versions||Object.keys(versions).length>100)throw Error('云端并发版本过多。');
   for(const [id,v]of Object.entries(versions)){if(!/^[a-zA-Z0-9:_-]{8,200}$/.test(id)||!v||typeof v.deleted!=='boolean'||!v.clock)throw Error('云端记录版本不合法。');clock(v.clock);if(!covers(d.clock,v.clock))throw Error('云端版本时钟不完整。');}
  }return d;
@@ -38,7 +38,7 @@ export function mergeDocs(...docs){const result=emptyDoc();for(const d of docs){
 export function conflicts(doc){return Object.entries(doc.registers).filter(([,vs])=>new Set(Object.values(vs).map(v=>canonical([v.deleted,v.value]))).size>1).map(([path,versions])=>({path,versions:Object.entries(versions).map(([id,v])=>({id,...v}))}));}
 export function materialize(doc){
  validateDoc(doc);if(conflicts(doc).length)throw Error('有并发修改需要先选择，未覆盖本机记录。');const data=emptyShared();
- for(const [p,versions]of Object.entries(doc.registers)){const v=Object.values(versions)[0];if(!v||v.deleted)continue;if(p==='references'){data.references=structuredClone(v.value);continue;}const [g,encoded]=p.split('/'),key=decodeURIComponent(encoded);if(MAPS.includes(g))data[g][key]=structuredClone(v.value);else{if(v.value?.id!==key)throw Error('云端记录标识不一致。');data[g].push(structuredClone(v.value));}}
+ for(const [p,versions]of Object.entries(doc.registers)){const v=Object.values(versions)[0];if(!v||v.deleted)continue;if(p==='references'){data.references=structuredClone(v.value);continue;}const [g,encoded]=p.split('/'),key=decodeURIComponent(encoded);if(MAPS.includes(g))data[g][key]=structuredClone(v.value);else{if((g==='snapshots'?v.value?.date:v.value?.id)!==key)throw Error('云端记录标识不一致。');data[g].push(structuredClone(v.value));}}
  for(const g of LISTS)data[g].sort((a,b)=>String(a.id).localeCompare(String(b.id)));
  const checked=initialState();applyShared(checked,data);validateState(checked);
  if(new Set(data.snapshots.map(s=>s.date)).size!==data.snapshots.length)throw Error('合并后有同日资产快照，请先在设备中核对，未覆盖本机记录。');return data;
